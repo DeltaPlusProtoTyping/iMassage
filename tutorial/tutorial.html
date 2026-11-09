@@ -1,0 +1,535 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>iMassage Tutorial</title>
+<style>
+  html, body { margin: 0; background: #000; height: 100%; overflow: hidden; }
+  canvas { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; margin: auto; position: absolute; inset: 0; }
+  #play { position: absolute; inset: 0; margin: auto; width: 220px; height: 64px; background: none; color: #e8e8e4; border: 1px solid #e8e8e4;
+    font: 600 14px Consolas, monospace; letter-spacing: .3em; cursor: pointer; z-index: 2; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<button id="play">▶ PLAY</button>
+<script>
+'use strict';
+const W = 1920, H = 1080, FPS = 30;
+const RECORD = location.search.includes('record');
+const cv = document.getElementById('c');
+const g = cv.getContext('2d');
+
+const C = {
+  bg: '#060708', fg: '#ecebe6', dim: 'rgba(236,235,230,.55)', faint: 'rgba(236,235,230,.12)',
+  hair: 'rgba(236,235,230,.08)', accent: '#ff6a13', accentDim: 'rgba(255,106,19,.35)', blue: '#1f8bff', green: '#34c759',
+};
+const SANS = 'Inter, "Segoe UI", sans-serif';
+const MONO = 'Consolas, "Cascadia Mono", monospace';
+
+// ------------------------------------------------------------------ timeline
+const SHOTS = [
+  { img: 'main', t: 'CONVERSATIONS', s: 'Pinned chats, live threads, new messages in about a quarter second.', p: [0.15, 0.19], l: 'PINNED' },
+  { img: 'tapback', t: 'TAPBACKS', s: 'Double-click any message. Pick it again to take it back.', p: [0.40, 0.42], l: 'DOUBLE-CLICK' },
+  { img: 'menu', t: 'EDIT  ·  UNDO SEND', s: 'Right-click your own message: Reply, Edit for 15 min, Undo Send for 2.', p: [0.81, 0.45], l: 'RIGHT-CLICK', lo: [-360, 150] },
+  { img: 'find', t: 'FIND', s: 'Ctrl+F searches the open conversation. Enter steps to older matches.', p: [0.45, 0.108], l: 'CTRL+F' },
+  { img: 'later', t: 'SEND LATER', s: 'Right-click the send button. Your PC sends it on time.', p: [0.87, 0.84], l: 'RIGHT-CLICK SEND', lo: [-560, -40] },
+  { img: 'sms', t: 'SMS + iMESSAGE', s: 'Green threads are labeled. Needs Text Message Forwarding on your iPhone.', p: [0.91, 0.25], l: 'TEXT MESSAGE', lo: [-420, 120] },
+];
+const SEC = [
+  { at: 0, dur: 8, fn: sceneTitle },
+  { at: 8, dur: 11, fn: sceneSystem, idx: '01', name: 'SYSTEM' },
+  { at: 19, dur: 9, fn: sceneReqs, idx: '02', name: 'REQUIREMENTS' },
+  { at: 28, dur: 15, fn: sceneMac, idx: '03', name: 'MAC SETUP' },
+  { at: 43, dur: 18, fn: scenePC, idx: '04', name: 'PC SETUP' },
+  { at: 61, dur: 6.5 * SHOTS.length, fn: sceneUse, idx: '05', name: 'OPERATION' },
+  { at: 61 + 6.5 * SHOTS.length, dur: 8, fn: sceneNotes, idx: '06', name: 'FIELD NOTES' },
+];
+const OUTRO_AT = SEC[SEC.length - 1].at + SEC[SEC.length - 1].dur;
+const TOTAL = OUTRO_AT + 9;
+const BEAT = 60 / 80;
+
+// ------------------------------------------------------------------ helpers
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const ease = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const outE = x => 1 - Math.pow(1 - clamp(x), 3);
+const env = (t, a, b, fi = .5, fo = .5) => clamp((t - a) / fi) * clamp((b - t) / fo);
+
+function text(s, x, y, o = {}) {
+  g.save();
+  g.globalAlpha *= o.a == null ? 1 : o.a;
+  g.fillStyle = o.c || C.fg;
+  g.font = `${o.w || 400} ${o.size || 24}px ${o.f || SANS}`;
+  g.textAlign = o.align || 'left';
+  g.textBaseline = o.base || 'alphabetic';
+  g.letterSpacing = (o.ls || 0) + 'px';
+  g.fillText(s, x, y);
+  const w = g.measureText(s).width;
+  g.restore();
+  return w;
+}
+// typed text: reveal n chars over time
+const typed = (s, t, cps = 38) => s.slice(0, Math.max(0, Math.floor(t * cps)));
+function line(x1, y1, x2, y2, c = C.faint, w = 1) { g.strokeStyle = c; g.lineWidth = w; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); }
+function brackets(x, y, w, h, len = 18, c = C.dim, lw = 1.5) {
+  g.strokeStyle = c; g.lineWidth = lw; g.beginPath();
+  g.moveTo(x, y + len); g.lineTo(x, y); g.lineTo(x + len, y);
+  g.moveTo(x + w - len, y); g.lineTo(x + w, y); g.lineTo(x + w, y + len);
+  g.moveTo(x + w, y + h - len); g.lineTo(x + w, y + h); g.lineTo(x + w - len, y + h);
+  g.moveTo(x + len, y + h); g.lineTo(x, y + h); g.lineTo(x, y + h - len);
+  g.stroke();
+}
+function cross(x, y, r, c = C.accent, a = 1) {
+  g.save(); g.globalAlpha *= a; g.strokeStyle = c; g.lineWidth = 1.5;
+  g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke();
+  line(x - r - 10, y, x - r + 6, y, c, 1.5); line(x + r - 6, y, x + r + 10, y, c, 1.5);
+  line(x, y - r - 10, x, y - r + 6, c, 1.5); line(x, y + r - 6, x, y + r + 10, c, 1.5);
+  g.restore();
+}
+
+// grain tiles
+const grain = [];
+for (let k = 0; k < 6; k++) {
+  const n = document.createElement('canvas'); n.width = 480; n.height = 270;
+  const x = n.getContext('2d'); const d = x.createImageData(480, 270);
+  for (let i = 0; i < d.data.length; i += 4) { const v = Math.random() * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; }
+  x.putImageData(d, 0, 0); grain.push(n);
+}
+
+function backdrop(t) {
+  g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+  // drifting grid
+  const off = (t * 6) % 120;
+  g.save(); g.globalAlpha = .9;
+  for (let x = -off; x < W; x += 120) line(x, 0, x, H, C.hair);
+  for (let y = -off * .5; y < H; y += 120) line(0, y, W, y, C.hair);
+  g.restore();
+  const v = g.createRadialGradient(W / 2, H / 2, H * .25, W / 2, H / 2, H * .95);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.75)');
+  g.fillStyle = v; g.fillRect(0, 0, W, H);
+}
+
+function hud(t, sec) {
+  const m = 56;
+  brackets(m, m, W - 2 * m, H - 2 * m, 26, 'rgba(236,235,230,.35)');
+  text('iMASSAGE', m + 24, m + 40, { f: MONO, size: 15, w: 700, ls: 6, c: C.fg, a: .8 });
+  text('// FIELD MANUAL', m + 150, m + 40, { f: MONO, size: 15, ls: 4, c: C.dim, a: .8 });
+  const tc = `T+${String(Math.floor(t / 60)).padStart(2, '0')}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+  text(tc, W - m - 24, m + 40, { f: MONO, size: 15, ls: 3, align: 'right', c: C.dim });
+  if (sec && sec.idx) {
+    text(`${sec.idx} / ${sec.name}`, m + 24, H - m - 26, { f: MONO, size: 15, ls: 5, c: C.accent });
+  }
+  text('MAC ⇄ SSH ⇄ PC', W - m - 24, H - m - 26, { f: MONO, size: 15, ls: 4, align: 'right', c: C.dim, a: .7 });
+  // progress
+  g.fillStyle = C.faint; g.fillRect(m + 24, H - m - 12, W - 2 * m - 48, 2);
+  g.fillStyle = C.accent; g.fillRect(m + 24, H - m - 12, (W - 2 * m - 48) * clamp(t / TOTAL), 2);
+  // scan line
+  const sy = (t * 140) % (H + 200) - 100;
+  const sg = g.createLinearGradient(0, sy - 60, 0, sy);
+  sg.addColorStop(0, 'rgba(236,235,230,0)'); sg.addColorStop(1, 'rgba(236,235,230,.035)');
+  g.fillStyle = sg; g.fillRect(0, sy - 60, W, 60);
+}
+
+function header(lt, sec, y = 250) {
+  const a = env(lt, 0, sec.dur, .6, .5);
+  text(sec.idx, 200, y - 96, { f: MONO, size: 22, ls: 6, c: C.accent, a });
+  text(sec.name, 200, y, { size: 92, w: 700, ls: 6, a: a * outE(lt / .9), c: C.fg });
+  g.save(); g.globalAlpha = a; line(200, y + 36, 200 + 520 * outE(lt / 1.2), y + 36, C.accent, 2); g.restore();
+}
+
+// ------------------------------------------------------------------ scenes
+function sceneTitle(lt, sec) {
+  const a = env(lt, 0, sec.dur, 1.2, .8);
+  g.save(); g.globalAlpha = a;
+  const s = 1 + lt * .006;
+  g.translate(W / 2, H / 2); g.scale(s, s); g.translate(-W / 2, -H / 2);
+  const reveal = outE((lt - .4) / 1.6);
+  g.save(); g.beginPath(); g.rect(0, H / 2 - 130, W * reveal, 170); g.clip();
+  text('iMASSAGE', W / 2, H / 2 + 20, { size: 168, w: 800, ls: 26, align: 'center' });
+  g.restore();
+  line(W / 2 - 420 * reveal, H / 2 + 70, W / 2 + 420 * reveal, H / 2 + 70, C.accent, 2);
+  text('iMESSAGE AND SMS ON WINDOWS.  THROUGH YOUR MAC.', W / 2, H / 2 + 130,
+    { f: MONO, size: 24, ls: 8, align: 'center', c: C.dim, a: clamp((lt - 2) / 1) });
+  text('SETUP + OPERATION', W / 2, H / 2 + 180, { f: MONO, size: 18, ls: 10, align: 'center', c: C.accent, a: clamp((lt - 3) / 1) });
+  cross(W / 2, H / 2 - 250, 22, C.accent, clamp((lt - 1) / 1) * (0.6 + 0.4 * Math.sin(lt * 4)));
+  g.restore();
+}
+
+function node(x, y, w, h, title, sub, items, a) {
+  g.save(); g.globalAlpha = a;
+  g.fillStyle = 'rgba(236,235,230,.03)'; g.fillRect(x, y, w, h);
+  brackets(x, y, w, h, 20, C.fg, 1.5);
+  text(title, x + 36, y + 70, { size: 44, w: 700, ls: 3 });
+  text(sub, x + 36, y + 108, { f: MONO, size: 17, ls: 3, c: C.accent });
+  items.forEach((s, i) => text(s, x + 36, y + 170 + i * 42, { f: MONO, size: 21, c: C.dim }));
+  g.restore();
+}
+
+function sceneSystem(lt, sec) {
+  header(lt, sec, 255);
+  const a = env(lt, 0, sec.dur, .6, .5);
+  const ax = 200, bx = 1150, y = 400, w = 570, h = 360;
+  node(ax, y, w, h, 'WINDOWS PC', 'YOU TYPE HERE', ['iMassage.exe   window + tray', 'server.py      127.0.0.1:8766', 'notifications · send later'], a * clamp((lt - .8) / .8));
+  node(bx, y, w, h, 'MAC', 'MESSAGES RUNS HERE', ['Messages.app   iMessage + SMS', 'mac_agent.py   streamed, not installed', 'reads chat.db · sends via AppleScript'], a * clamp((lt - 1.6) / .8));
+  // link
+  const la = a * clamp((lt - 2.4) / .6);
+  const x1 = ax + w + 20, x2 = bx - 20, cy = y + h / 2;
+  g.save(); g.globalAlpha = la;
+  g.setLineDash([8, 10]); line(x1, cy, x1 + (x2 - x1) * outE((lt - 2.4) / 1), cy, C.fg, 1.5); g.setLineDash([]);
+  text('ONE SSH SESSION', (x1 + x2) / 2, cy - 30, { f: MONO, size: 16, ls: 4, align: 'center', c: C.dim });
+  text('LAN · TAILSCALE · VPN', (x1 + x2) / 2, cy + 46, { f: MONO, size: 14, ls: 3, align: 'center', c: C.dim, a: .7 });
+  for (let k = 0; k < 4; k++) {
+    const p = ((lt * .45 + k / 4) % 1);
+    const dir = k % 2 ? 1 - p : p;
+    g.fillStyle = k % 2 ? C.fg : C.accent;
+    g.fillRect(x1 + (x2 - x1) * dir - 5, cy - 5, 10, 10);
+  }
+  g.restore();
+  text('NOTHING IS INSTALLED ON THE MAC. THE AGENT IS STREAMED ON EVERY CONNECT.', W / 2, 870,
+    { f: MONO, size: 19, ls: 4, align: 'center', c: C.dim, a: a * clamp((lt - 4) / 1) });
+}
+
+function sceneReqs(lt, sec) {
+  header(lt, sec, 255);
+  const a = env(lt, 0, sec.dur, .6, .5);
+  const rows = [
+    ['MAC', 'Always on. Signed in to iMessage.'],
+    ['PC', 'Windows 10 or 11.'],
+    ['NETWORK', 'PC reaches Mac over SSH. Same Wi-Fi, or Tailscale.'],
+    ['SOFTWARE', 'Python 3.10+  ·  Node.js  ·  Git'],
+    ['SMS', 'iPhone > Messages > Text Message Forwarding > your Mac'],
+  ];
+  rows.forEach((r, i) => {
+    const ra = a * outE((lt - .8 - i * .45) / .6);
+    const y = 400 + i * 96;
+    const dx = (1 - ra) * 40;
+    g.save(); g.globalAlpha = ra;
+    line(200, y + 30, 1720, y + 30, C.hair);
+    text(String(i + 1).padStart(2, '0'), 200 + dx, y, { f: MONO, size: 18, c: C.accent, ls: 3 });
+    text(r[0], 280 + dx, y, { f: MONO, size: 22, w: 700, ls: 5 });
+    text(r[1], 560 + dx, y, { size: 34, w: 400, c: C.fg });
+    g.restore();
+  });
+}
+
+function toggle(x, y, on, a) {
+  g.save(); g.globalAlpha = a;
+  const w = 64, h = 34;
+  g.fillStyle = on ? C.green : 'rgba(236,235,230,.18)';
+  g.beginPath(); g.roundRect(x, y, w, h, h / 2); g.fill();
+  g.fillStyle = '#fff';
+  g.beginPath(); g.arc(x + h / 2 + (w - h) * on, y + h / 2, h / 2 - 3, 0, Math.PI * 2); g.fill();
+  g.restore();
+}
+
+function sceneMac(lt, sec) {
+  header(lt, sec, 255);
+  const a = env(lt, 0, sec.dur, .6, .5);
+  const steps = [
+    { k: 'REMOTE LOGIN', path: 'System Settings › General › Sharing › Remote Login', at: 1.2 },
+    { k: 'FULL DISK ACCESS', path: 'Privacy & Security › Full Disk Access › sshd-keygen-wrapper', at: 3.6, note: 'reads Messages + Contacts' },
+    { k: 'AUTOMATION', path: 'Privacy & Security › Automation › sshd-keygen-wrapper › Messages, System Events', at: 6.0, note: 'sending · tapbacks · edits' },
+    { k: 'ACCESSIBILITY', path: 'Privacy & Security › Accessibility › sshd-keygen-wrapper', at: 8.4, note: 'tapbacks · edit · undo send' },
+  ];
+  steps.forEach((s, i) => {
+    const sa = a * outE((lt - s.at) / .5);
+    const y = 370 + i * 135;
+    g.save(); g.globalAlpha = sa;
+    text(s.k, 200, y, { f: MONO, size: 24, w: 700, ls: 5 });
+    text(typed(s.path, lt - s.at - .3, 55), 200, y + 46, { size: 30, c: C.dim });
+    if (s.note) text(s.note.toUpperCase(), 1500, y, { f: MONO, size: 15, ls: 3, c: C.accent, align: 'right', a: clamp((lt - s.at - 1.4) / .4) });
+    g.restore();
+    toggle(1590, y + 10, ease((lt - s.at - 1.6) / .35), sa);
+  });
+  g.save(); g.globalAlpha = a * clamp((lt - 11) / .6);
+  g.fillStyle = 'rgba(255,106,19,.08)'; g.fillRect(200, 912, 1520, 64);
+  text('ADD IT WITH  +  →  ⌘⇧G  →  /usr/libexec/sshd-keygen-wrapper', 230, 954, { f: MONO, size: 22, ls: 2, c: C.accent });
+  g.restore();
+}
+
+const PC_CMDS = [
+  ['git clone https://github.com/DeltaPlusProtoTyping/iMassage.git && cd iMassage', null],
+  ['pip install -r requirements.txt', 'Successfully installed fastapi uvicorn'],
+  ['npx electron --version', 'v43.0.0'],
+  ['ssh-keygen -t ed25519', 'Your public key has been saved in id_ed25519.pub'],
+  ['type ~\\.ssh\\id_ed25519.pub | ssh you@your-mac.local "cat >> ~/.ssh/authorized_keys"', null],
+  ['copy config.example.json config.json   # set "mac_host": "you@your-mac.local"', null],
+  ['powershell -ExecutionPolicy Bypass -File install.ps1', '[ok] iMassage is installed and running (tray icon; Start Menu > iMassage).'],
+];
+function scenePC(lt, sec) {
+  header(lt, sec, 255);
+  const a = env(lt, 0, sec.dur, .6, .5);
+  const x = 200, y = 334, w = 1520, h = 626;
+  g.save(); g.globalAlpha = a * clamp((lt - .6) / .5);
+  g.fillStyle = 'rgba(10,12,14,.92)'; g.fillRect(x, y, w, h);
+  g.strokeStyle = 'rgba(236,235,230,.22)'; g.lineWidth = 1; g.strokeRect(x, y, w, h);
+  g.fillStyle = 'rgba(236,235,230,.06)'; g.fillRect(x, y, w, 46);
+  text('POWERSHELL  —  PC', x + 24, y + 30, { f: MONO, size: 15, ls: 4, c: C.dim });
+  let cy = y + 100, tt = lt - 1.2;
+  for (const [cmd, out] of PC_CMDS) {
+    if (tt <= 0) break;
+    const shown = typed(cmd, tt, 48);
+    text('PS>', x + 28, cy, { f: MONO, size: 22, c: C.accent });
+    text(shown, x + 90, cy, { f: MONO, size: 22, c: C.fg });
+    cy += 44;
+    tt -= cmd.length / 48 + .35;
+    if (out && tt > 0) {
+      text(out, x + 90, cy, { f: MONO, size: 20, c: out.startsWith('[ok]') ? C.green : C.dim });
+      cy += 44;
+    }
+    tt -= .25;
+  }
+  // cursor
+  if (Math.floor(lt * 2.5) % 2) { g.fillStyle = C.fg; g.fillRect(x + 90, cy - 22, 12, 26); }
+  g.restore();
+}
+
+const IMGS = {};
+function shot(lt, sh, idx) {
+  const img = IMGS[sh.img];
+  const a = env(lt, 0, 6.5, .45, .45);
+  const iw = 1180, ih = iw * img.height / img.width;
+  const x = 640, y = (H - ih) / 2 + 10;
+  const z = 1 + lt * .005;
+  g.save(); g.globalAlpha = a;
+  // caption column
+  const ca = outE((lt - .2) / .6);
+  text(`05.${idx + 1}`, 200, 380, { f: MONO, size: 20, ls: 5, c: C.accent, a: ca });
+  wrapTitle(sh.t, 200, 450, ca);
+  wrapText(sh.s, 200, 560, 380, ca);
+  // image with slow push
+  g.save();
+  g.beginPath(); g.rect(x, y, iw, ih); g.clip();
+  g.translate(x + iw * sh.p[0], y + ih * sh.p[1]); g.scale(z, z); g.translate(-(x + iw * sh.p[0]), -(y + ih * sh.p[1]));
+  g.drawImage(img, x, y, iw, ih);
+  g.restore();
+  g.strokeStyle = 'rgba(236,235,230,.25)'; g.lineWidth = 1; g.strokeRect(x, y, iw, ih);
+  brackets(x - 14, y - 14, iw + 28, ih + 28, 22, C.dim);
+  // callout
+  const ra = clamp((lt - 1.2) / .5);
+  const px = x + iw * sh.p[0], py = y + ih * sh.p[1];
+  cross(px, py, 26 + 6 * Math.sin(lt * 5), C.accent, ra);
+  const lo = sh.lo || [70, py < y + 120 ? 90 : -70];
+  const lx = Math.min(px + lo[0], x + iw - 260), ly = py + lo[1];
+  g.save(); g.globalAlpha *= ra;
+  line(px + (lx > px ? 20 : -20), py + (ly > py ? 20 : -20), lx + (lx > px ? 0 : 180), ly - 8, C.accent, 1.5);
+  g.font = `700 16px ${MONO}`; g.letterSpacing = '4px';
+  const tw = g.measureText(sh.l).width;
+  g.fillStyle = C.accent; g.fillRect(lx, ly - 24, tw + 24, 34);
+  text(sh.l, lx + 12, ly - 1, { f: MONO, size: 16, w: 700, ls: 4, c: '#0b0b0b' });
+  g.restore();
+  g.restore();
+}
+function wrapTitle(s, x, y, a) {
+  const parts = s.split('  ·  ');
+  parts.forEach((p, i) => text(p, x, y + i * 64, { size: 56, w: 800, ls: 2, a }));
+}
+function wrapText(s, x, y, maxW, a) {
+  g.font = `400 26px ${SANS}`;
+  const words = s.split(' '); let lineS = '', ly = y;
+  for (const wd of words) {
+    const test = lineS ? lineS + ' ' + wd : wd;
+    if (g.measureText(test).width > maxW && lineS) { text(lineS, x, ly, { size: 26, c: C.dim, a }); lineS = wd; ly += 38; }
+    else lineS = test;
+  }
+  if (lineS) text(lineS, x, ly, { size: 26, c: C.dim, a });
+}
+
+function sceneUse(lt, sec) {
+  if (lt < 2.2) {
+    header(lt, { ...sec, dur: 2.2 }, H / 2);
+    return;
+  }
+  const u = lt - 2.2;
+  const span = (sec.dur - 2.2) / SHOTS.length;
+  const i = Math.min(SHOTS.length - 1, Math.floor(u / span));
+  shot((u - i * span) * 6.5 / span, SHOTS[i], i);
+}
+
+function sceneNotes(lt, sec) {
+  header(lt, sec, 255);
+  const a = env(lt, 0, sec.dur, .6, .5);
+  const notes = [
+    ['TAPBACKS · EDIT · UNDO SEND', 'Work while the Mac is unlocked.'],
+    ['SEND LATER', 'The PC sends it, so leave the PC on.'],
+    ['TRAY', 'Close the window; notifications keep coming.'],
+    ['SHORTCUTS', 'Ctrl+N new · Ctrl+F find · Ctrl+1–9 pins · Esc'],
+  ];
+  notes.forEach((n, i) => {
+    const na = a * outE((lt - .8 - i * .5) / .5);
+    const y = 420 + i * 120;
+    g.save(); g.globalAlpha = na;
+    g.fillStyle = C.accent; g.fillRect(200, y - 22, 6, 46);
+    text(n[0], 236, y - 2, { f: MONO, size: 22, w: 700, ls: 4 });
+    text(n[1], 236, y + 38, { size: 30, c: C.dim });
+    g.restore();
+  });
+}
+
+function sceneOutro(lt) {
+  const a = clamp(lt / 1) * clamp((TOTAL - OUTRO_AT - lt) / 1.5);
+  g.save(); g.globalAlpha = a;
+  text('iMASSAGE', W / 2, H / 2 - 30, { size: 120, w: 800, ls: 20, align: 'center' });
+  line(W / 2 - 300, H / 2 + 10, W / 2 + 300, H / 2 + 10, C.accent, 2);
+  text('github.com/DeltaPlusProtoTyping/iMassage', W / 2, H / 2 + 80, { f: MONO, size: 30, ls: 3, align: 'center', c: C.fg, a: clamp((lt - .8) / .6) });
+  text('OPEN SOURCE  ·  NOTHING INSTALLED ON YOUR MAC', W / 2, H / 2 + 135, { f: MONO, size: 17, ls: 7, align: 'center', c: C.dim, a: clamp((lt - 1.5) / .6) });
+  g.restore();
+}
+
+function frame(t) {
+  backdrop(t);
+  let sec = null;
+  for (const s of SEC) if (t >= s.at && t < s.at + s.dur) sec = s;
+  if (sec) sec.fn(t - sec.at, sec);
+  else if (t >= OUTRO_AT) sceneOutro(t - OUTRO_AT);
+  hud(t, sec);
+  // flash on section cuts
+  for (const s of SEC.slice(1).concat([{ at: OUTRO_AT }])) {
+    const d = t - s.at;
+    if (d >= 0 && d < .25) { g.fillStyle = `rgba(236,235,230,${.07 * (1 - d / .25)})`; g.fillRect(0, 0, W, H); }
+  }
+  g.save(); g.globalAlpha = .045; g.globalCompositeOperation = 'overlay';
+  g.drawImage(grain[Math.floor(t * 24) % grain.length], 0, 0, W, H);
+  g.restore();
+}
+
+// ------------------------------------------------------------------ score
+// Low, dark, cinematic: sub drone + pulse, metallic ticks, impacts on every cut. All synthesized.
+function score(ac, out, t0) {
+  const master = ac.createGain(); master.gain.value = .9;
+  const comp = ac.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = .01; comp.release.value = .25;
+  master.connect(comp).connect(out);
+  const noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+  { const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  const at = s => t0 + s;
+  const fadeOut = TOTAL - 1.5;
+
+  // root progression per section (Hz, low register)
+  const roots = [[0, 41.2], [8, 41.2], [19, 36.7], [28, 43.65], [43, 41.2], [61, 36.7], [SEC[6].at, 32.7], [OUTRO_AT, 41.2]];
+  // sub drone: two detuned saws through a low lowpass, plus a sine sub
+  const droneF = ac.createBiquadFilter(); droneF.type = 'lowpass'; droneF.Q.value = 6;
+  droneF.frequency.setValueAtTime(90, at(0)); droneF.frequency.linearRampToValueAtTime(260, at(8));
+  const lfo = ac.createOscillator(); lfo.frequency.value = .07; const lfoG = ac.createGain(); lfoG.gain.value = 90;
+  lfo.connect(lfoG).connect(droneF.frequency); lfo.start(at(0)); lfo.stop(at(TOTAL));
+  const droneG = ac.createGain(); droneG.gain.setValueAtTime(0, at(0)); droneG.gain.linearRampToValueAtTime(.32, at(4));
+  droneG.gain.setValueAtTime(.32, at(fadeOut)); droneG.gain.linearRampToValueAtTime(0, at(TOTAL));
+  droneF.connect(droneG).connect(master);
+  const subG = ac.createGain(); subG.gain.setValueAtTime(0, at(0)); subG.gain.linearRampToValueAtTime(.42, at(6));
+  subG.gain.setValueAtTime(.42, at(fadeOut)); subG.gain.linearRampToValueAtTime(0, at(TOTAL));
+  subG.connect(master);
+  const voices = [['sawtooth', 1, -7], ['sawtooth', 1, 7], ['sawtooth', 1.5, 3], ['sine', .5, 0]];
+  for (const [type, mul, det] of voices) {
+    const o = ac.createOscillator(); o.type = type; o.detune.value = det;
+    for (const [s, f] of roots) o.frequency.setTargetAtTime(f * mul * 2, at(s), .4);
+    o.connect(type === 'sine' ? subG : droneF); o.start(at(0)); o.stop(at(TOTAL));
+  }
+
+  // pulse kick on every beat from 8s, half-time in title & outro
+  function kick(s, lvl = .9, f0 = 110) {
+    const o = ac.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(f0, at(s)); o.frequency.exponentialRampToValueAtTime(38, at(s + .18));
+    const k = ac.createGain(); k.gain.setValueAtTime(0, at(s)); k.gain.linearRampToValueAtTime(lvl, at(s + .005));
+    k.gain.exponentialRampToValueAtTime(.001, at(s + .55));
+    o.connect(k).connect(master); o.start(at(s)); o.stop(at(s + .6));
+  }
+  for (let s = 8; s < OUTRO_AT; s += BEAT) kick(s, .55);
+  for (let s = 2; s < 8; s += BEAT * 2) kick(s, .35);
+
+  // ticks: filtered noise, 8ths, accent on offbeat, from the requirements section
+  function tick(s, lvl, freq) {
+    const n = ac.createBufferSource(); n.buffer = noiseBuf;
+    const f = ac.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = freq;
+    const k = ac.createGain(); k.gain.setValueAtTime(lvl, at(s)); k.gain.exponentialRampToValueAtTime(.0005, at(s + .05));
+    n.connect(f).connect(k).connect(master); n.start(at(s), Math.random()); n.stop(at(s + .06));
+  }
+  for (let s = 19, i = 0; s < OUTRO_AT; s += BEAT / 2, i++) tick(s, i % 2 ? .07 : .03, i % 4 === 3 ? 5200 : 8000);
+
+  // metallic ping (FM bell) on section starts
+  function ping(s, f = 880) {
+    const car = ac.createOscillator(), mod = ac.createOscillator(), mg = ac.createGain();
+    car.frequency.value = f; mod.frequency.value = f * 1.414; mg.gain.value = f * 1.2;
+    mod.connect(mg).connect(car.frequency);
+    const k = ac.createGain(); k.gain.setValueAtTime(0, at(s)); k.gain.linearRampToValueAtTime(.06, at(s + .01));
+    k.gain.exponentialRampToValueAtTime(.0005, at(s + 2.4));
+    car.connect(k).connect(master); car.start(at(s)); mod.start(at(s)); car.stop(at(s + 2.5)); mod.stop(at(s + 2.5));
+  }
+  // impact: deep boom + noise swell before the cut
+  function impact(s) {
+    kick(s, 1.0, 70);
+    const o = ac.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(52, at(s)); o.frequency.exponentialRampToValueAtTime(30, at(s + 2.5));
+    const k = ac.createGain(); k.gain.setValueAtTime(.7, at(s)); k.gain.exponentialRampToValueAtTime(.001, at(s + 3));
+    o.connect(k).connect(master); o.start(at(s)); o.stop(at(s + 3.1));
+    const r0 = Math.max(0, s - 1.6);
+    const n = ac.createBufferSource(); n.buffer = noiseBuf; n.loop = true;
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.2;
+    f.frequency.setValueAtTime(300, at(r0)); f.frequency.exponentialRampToValueAtTime(4000, at(s));
+    const ng = ac.createGain(); ng.gain.setValueAtTime(.0001, at(r0)); ng.gain.exponentialRampToValueAtTime(.12, at(s - .02)); ng.gain.linearRampToValueAtTime(0, at(s + .05));
+    n.connect(f).connect(ng).connect(master); n.start(at(r0)); n.stop(at(s + .1));
+  }
+  impact(.6);
+  for (const s of SEC.slice(1)) { impact(s.at); ping(s.at + .05, 660); }
+  impact(OUTRO_AT); ping(OUTRO_AT + .05, 440);
+  // shot changes inside OPERATION: light ping
+  const span = (SEC[5].dur - 2.2) / SHOTS.length;
+  for (let i = 0; i < SHOTS.length; i++) ping(SEC[5].at + 2.2 + i * span, 1320);
+}
+
+// ------------------------------------------------------------------ run
+async function start() {
+  document.getElementById('play').remove();
+  const font = new FontFace('Inter', 'url(Inter.woff2)', { weight: '100 900' });
+  document.fonts.add(await font.load());
+  await Promise.all(SHOTS.map(s => new Promise((res, rej) => {
+    const im = new Image(); im.onload = () => { IMGS[s.img] = im; res(); }; im.onerror = rej; im.src = s.img + '.png';
+  })));
+  const ac = new AudioContext({ sampleRate: 48000 });
+  await ac.resume();
+  const dest = RECORD ? ac.createMediaStreamDestination() : ac.destination;
+  const t0 = ac.currentTime + .3;
+  score(ac, dest, t0);
+  let rec, chunks = [];
+  if (RECORD) {
+    const stream = new MediaStream([...cv.captureStream(FPS).getVideoTracks(), ...dest.stream.getAudioTracks()]);
+    const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+    const mime = types.find(t => MediaRecorder.isTypeSupported(t));
+    rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 10e6, audioBitsPerSecond: 192e3 });
+    rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+    rec.onstop = async () => {
+      const buf = Buffer.from(await new Blob(chunks).arrayBuffer());
+      const ext = mime.includes('mp4') ? 'mp4' : 'webm';
+      require('fs').writeFileSync(require('path').join(__dirname, 'iMassage-tutorial.' + ext), buf);
+      require('electron').ipcRenderer.send('done', ext);
+    };
+    frame(0);
+    rec.start(1000);
+  }
+  const loop = () => {
+    const t = ac.currentTime - t0;
+    frame(Math.max(0, t));
+    if (t < TOTAL) requestAnimationFrame(loop);
+    else if (rec) setTimeout(() => rec.stop(), 300);
+  };
+  loop();
+}
+async function stills(times) {
+  document.getElementById('play').remove();
+  const font = new FontFace('Inter', 'url(Inter.woff2)', { weight: '100 900' });
+  document.fonts.add(await font.load());
+  await Promise.all(SHOTS.map(s => new Promise((res, rej) => {
+    const im = new Image(); im.onload = () => { IMGS[s.img] = im; res(); }; im.onerror = rej; im.src = s.img + '.png';
+  })));
+  for (const t of times) {
+    frame(t);
+    const data = cv.toDataURL('image/jpeg', .85).split(',')[1];
+    require('fs').writeFileSync(require('path').join(__dirname, `still_${t}.jpg`), Buffer.from(data, 'base64'));
+  }
+  require('electron').ipcRenderer.send('done', 'stills');
+}
+
+const STILLS = new URLSearchParams(location.search).get('still');
+document.getElementById('play').onclick = start;
+if (STILLS) stills(STILLS.split(',').map(Number));
+else if (RECORD) start();
+</script>
+</body>
+</html>

@@ -20,41 +20,76 @@ only) down an SSH session each time it connects.
 - A Mac that stays on, signed in to iMessage in Messages (tested on macOS 26.3).
 - A Windows 10/11 PC that can reach the Mac over SSH: same network, or anything that routes to it
   (Tailscale, a VPN).
-- On the PC: Python 3.10+ and Node.js (only used once, to fetch Electron).
+- On the PC: Git, Python 3.10+ and Node.js (only used once, to fetch Electron).
 - For SMS / green bubbles: on the iPhone, Settings > Messages > Text Message Forwarding > turn on
   the Mac.
 
+## Video tutorial
+
+[![iMassage tutorial: setup and use, 2 minutes](tutorial/thumbnail.jpg)](https://github.com/DeltaPlusProtoTyping/iMassage/releases/download/v1.0/iMassage-tutorial.mp4)
+
+**[Watch the 2-minute tutorial](https://github.com/DeltaPlusProtoTyping/iMassage/releases/download/v1.0/iMassage-tutorial.mp4)**
+(setup on both machines, then every feature). The conversations in it are made-up demo data.
+
 ## Setup
 
-### On the Mac
+Two steps: one PowerShell block on the PC, then one pasted line on the Mac. You type your Mac
+password once.
 
-1. **System Settings > General > Sharing > Remote Login**: on.
-2. **System Settings > Privacy & Security**, for `sshd-keygen-wrapper` (it's what SSH sessions run
-   as; add it with **+**, then **Cmd+Shift+G** and `/usr/libexec/sshd-keygen-wrapper`):
-   - **Full Disk Access**: on (reads the Messages database and Contacts).
-   - **Automation**: Messages on (sending). System Events on (tapbacks, edit, unsend). These appear
-     the first time the app asks; the app's error messages say which one is missing.
-   - **Accessibility**: on (tapbacks, edit, unsend).
-
-### On the PC
+### 1. On the PC
 
 ```powershell
 git clone https://github.com/DeltaPlusProtoTyping/iMassage.git
 cd iMassage
 pip install -r requirements.txt
-npx electron --version                 # puts an Electron zip in the local cache for install.ps1
-
-ssh-keygen -t ed25519                  # skip if you already have ~/.ssh/id_ed25519
-type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh you@your-mac.local "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
-
-copy config.example.json config.json   # then set mac_host (and ssh_key if it's not id_ed25519)
+npx electron --version
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-`install.ps1` builds `runtime\` (Electron renamed `iMassage.exe`), registers an `iMassage Server`
-scheduled task that runs `server.py` at logon, and starts the app. It adds itself to the Start Menu
-and starts hidden at login (tray menu > Open at Login).
+`install.ps1` makes an SSH key if you don't have one, then prints a one-line command for the Mac
+with that key already filled in, and copies it to your clipboard. Leave it waiting.
 
+### 2. On the Mac
+
+Open **Terminal**, paste the line `install.ps1` printed, and press Return. It looks like:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DeltaPlusProtoTyping/iMassage/main/mac-setup.sh | bash -s -- "ssh-ed25519 AAAA... imassage@YOUR-PC"
+```
+
+[`mac-setup.sh`](mac-setup.sh) asks for your password once, then:
+
+1. installs Apple's Command Line Tools if they're missing (the agent runs on their Python 3)
+2. turns on Remote Login (SSH) and authorizes the PC's key
+3. keeps the Mac awake while plugged in (`pmset -c sleep 0`; the display can still sleep)
+4. opens Messages, then the two Privacy panes macOS only lets you change by hand,
+   **Full Disk Access** and **Accessibility**, with `/usr/libexec/sshd-keygen-wrapper` already on
+   your clipboard: click **+**, **Cmd+Shift+G**, **Cmd+V**, Return, **Open**, and switch it on
+5. makes macOS ask to let SSH control **Messages** and **System Events** while you're sitting
+   there (click **OK** twice), then checks that all of it works
+
+It ends with `Your Mac is ready` and the `mac_host` to type back into `install.ps1` on the PC,
+which then finishes: it builds `runtime\` (Electron renamed `iMassage.exe`), registers an
+`iMassage Server` scheduled task that runs `server.py` at logon, and starts the app. The app adds
+itself to the Start Menu and starts hidden at login (tray menu > Open at Login).
+
+<details>
+<summary>Doing the Mac side by hand instead</summary>
+
+```bash
+xcode-select --install                                   # Command Line Tools, if `python3` isn't there yet
+sudo systemsetup -f -setremotelogin on                   # or System Settings > General > Sharing > Remote Login
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo "ssh-ed25519 AAAA... (the PC's id_ed25519.pub)" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+sudo pmset -c sleep 0                                    # stay awake on power
+echo "$USER@$(scutil --get LocalHostName).local"         # your mac_host
+```
+
+Then in **System Settings > Privacy & Security**, for `/usr/libexec/sshd-keygen-wrapper`: turn on
+**Full Disk Access** and **Accessibility**, and under **Automation** allow **Messages** and
+**System Events** (those two appear after the PC first connects; the app's errors say which is
+missing).
+</details>
 ## Using it
 
 - **Enter** sends, **Shift+Enter** new line. Paste or drag photos/files in, or use **+**. The
@@ -89,7 +124,9 @@ fall back to a Save link. HEIC photos are converted on the Mac.
 | `mac_agent.py` | Runs on the Mac inside the SSH session; streamed at connect, nothing installed |
 | `web/` | The UI (`index.html`, `app.js`, `effects.js`, `style.css`, `fonts/Inter.woff2`, OFL) |
 | `desktop/` | Electron main process + preload; `runtime/resources/app` is a junction to it |
-| `install.ps1` | Builds `runtime/`, registers the `iMassage Server` logon task, starts the app |
+| `install.ps1` | SSH key + Mac link, builds `runtime/`, registers the `iMassage Server` logon task, starts the app |
+| `mac-setup.sh` | One-time Mac setup, pasted into Terminal (see Setup) |
+| `tutorial/` | The tutorial video's source: `tutorial.html` (canvas + synthesized score), demo screenshots, `recorder/` |
 | `config.json` | Yours, not committed: `mac_host`, `ssh_key`, `port`, `chat_limit` (see `config.example.json`) |
 | `state.json` | Pins, last-seen message per chat, scheduled messages |
 | `cache/`, `logs/` | Fetched attachments/photos (safe to delete); `logs/server.log` |

@@ -10,12 +10,35 @@ $runtime  = Join-Path $dir "runtime"
 $exe      = Join-Path $runtime "iMassage.exe"
 $taskName = "iMassage Server"
 
+# --- config.json + SSH key + Mac link --------------------------------------------------------
 $config = Join-Path $dir "config.json"
-if (-not (Test-Path $config)) {
-    Copy-Item (Join-Path $dir "config.example.json") $config
-    Write-Host "  Created config.json - set mac_host (and ssh_key if not ~/.ssh/id_ed25519), then run this again." -ForegroundColor Yellow
-    exit 1
+$cfg = if (Test-Path $config) { Get-Content $config -Raw | ConvertFrom-Json } else { Get-Content (Join-Path $dir "config.example.json") -Raw | ConvertFrom-Json }
+if (-not $cfg.ssh_key -or $cfg.ssh_key -like "*\you\*") { $cfg.ssh_key = Join-Path $env:USERPROFILE ".ssh\id_ed25519" }
+if (-not (Test-Path $cfg.ssh_key)) {
+    New-Item -ItemType Directory -Force (Split-Path $cfg.ssh_key) | Out-Null
+    ssh-keygen -q -t ed25519 -N '""' -f $cfg.ssh_key -C "imassage@$env:COMPUTERNAME"
+    Write-Host "  Made an SSH key: $($cfg.ssh_key)"
 }
+if ($cfg.mac_host -eq "you@your-mac.local") { $cfg.mac_host = "" }
+$cfg | ConvertTo-Json | Set-Content $config -Encoding ascii
+
+$pub = (Get-Content "$($cfg.ssh_key).pub" -Raw).Trim()
+$macCmd = "curl -fsSL https://raw.githubusercontent.com/DeltaPlusProtoTyping/iMassage/main/mac-setup.sh | bash -s -- `"$pub`""
+$ErrorActionPreference = "Continue"  # ssh/ssh-keygen write to stderr; that isn't failure
+for ($try = 1; ; $try++) {
+    if ($cfg.mac_host) {
+        ssh -i $cfg.ssh_key -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new $cfg.mac_host "true" 2>$null
+        if ($LASTEXITCODE -eq 0) { Write-Host "  [ok] SSH to $($cfg.mac_host) works" -ForegroundColor Green; break }
+        if ($try -gt 3) { Write-Host "  [X] Still can't SSH to $($cfg.mac_host). Check the address and that the Mac is on, then run this again." -ForegroundColor Red; exit 1 }
+        Write-Host "`n  Can't reach $($cfg.mac_host) yet." -ForegroundColor Yellow
+    }
+    Write-Host "`n  On the Mac, open Terminal and paste this (it's on your clipboard), then enter your Mac password once:`n" -ForegroundColor Yellow
+    Write-Host "  $macCmd`n"
+    Set-Clipboard $macCmd
+    $ans = (Read-Host "  When it says 'Your Mac is ready', type the mac_host it printed$(if ($cfg.mac_host) { " [$($cfg.mac_host)]" })").Trim()
+    if ($ans) { $cfg.mac_host = $ans.Trim('"'); $cfg | ConvertTo-Json | Set-Content $config -Encoding ascii }
+}
+$ErrorActionPreference = "Stop"
 
 if (-not (Test-Path $exe)) {
     $zip = Get-ChildItem "$env:LOCALAPPDATA\electron\Cache\*\electron-v*-win32-x64.zip" -ErrorAction SilentlyContinue |

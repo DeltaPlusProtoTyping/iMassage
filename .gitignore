@@ -8,3 +8,4 @@ runtime/
 __pycache__/
 *.pyc
 *.tmp
+tutorial/*.mp4
