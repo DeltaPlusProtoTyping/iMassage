@@ -1,0 +1,10 @@
+{
+  "name": "iMassage",
+  "short_name": "iMassage",
+  "description": "iMessage and SMS from this PC, through your Mac",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1b1b1d",
+  "theme_color": "#0a6cf0",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

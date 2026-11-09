@@ -1,0 +1,6 @@
+{
+  "mac_host": "you@your-mac.local",
+  "ssh_key": "C:\\Users\\you\\.ssh\\id_ed25519",
+  "port": 8766,
+  "chat_limit": 300
+}

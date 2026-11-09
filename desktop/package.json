@@ -1,0 +1,8 @@
+{
+  "name": "imassage",
+  "productName": "iMassage",
+  "version": "2.0.0",
+  "description": "iMessage on Windows, through your Mac",
+  "main": "main.js",
+  "private": true
+}

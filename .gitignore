@@ -1,0 +1,10 @@
+# personal settings and data
+config.json
+state.json
+cache/
+logs/
+# built by install.ps1 from the local Electron cache
+runtime/
+__pycache__/
+*.pyc
+*.tmp
