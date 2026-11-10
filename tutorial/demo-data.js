@@ -6,6 +6,9 @@
   const min = 60000;
   onMessages = () => {};
   notify = () => {};
+  onStatus = () => {};
+  S.status = { connected: true };
+  els.banner.hidden = true;
   const P = (handle, name) => ({ handle, label: handle, name, first: name.split(' ')[0], photo: null, known: true });
   const people = {
     maya: P('+15550100', 'Maya Chen'), jordan: P('+15550101', 'Jordan Ellis'), dad: P('+15550102', 'Dad'),

@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const page = path.join(__dirname, '..', 'tutorial.html');
 const still = (process.argv.find(a => a.startsWith('--still=')) || '').slice(8);
+const small = process.argv.includes('--720');
 
 app.whenReady().then(() => {
   const win = new BrowserWindow({
@@ -14,5 +15,5 @@ app.whenReady().then(() => {
   win.webContents.on('console-message', (_e, _l, msg) => console.log('page:', msg));
   win.webContents.on('render-process-gone', (_e, d) => { console.log('gone', d.reason); app.exit(1); });
   ipcMain.on('done', (_e, what) => { console.log('done', what); app.quit(); });
-  win.loadFile(page, { search: still ? `still=${still}` : 'record=1' });
+  win.loadFile(page, { search: still ? `still=${still}` : small ? 'record=720' : 'record=1' });
 });

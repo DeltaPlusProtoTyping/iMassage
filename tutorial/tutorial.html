@@ -36,18 +36,21 @@ const SHOTS = [
   { img: 'later', t: 'SEND LATER', s: 'Right-click the send button. Your PC sends it on time.', p: [0.87, 0.84], l: 'RIGHT-CLICK SEND', lo: [-560, -40] },
   { img: 'sms', t: 'SMS + iMESSAGE', s: 'Green threads are labeled. Needs Text Message Forwarding on your iPhone.', p: [0.91, 0.25], l: 'TEXT MESSAGE', lo: [-420, 120] },
 ];
-const SEC = [
-  { at: 0, dur: 8, fn: sceneTitle },
-  { at: 8, dur: 11, fn: sceneSystem, idx: '01', name: 'SYSTEM' },
-  { at: 19, dur: 9, fn: sceneReqs, idx: '02', name: 'REQUIREMENTS' },
-  { at: 28, dur: 15, fn: sceneMac, idx: '03', name: 'MAC SETUP' },
-  { at: 43, dur: 18, fn: scenePC, idx: '04', name: 'PC SETUP' },
-  { at: 61, dur: 6.5 * SHOTS.length, fn: sceneUse, idx: '05', name: 'OPERATION' },
-  { at: 61 + 6.5 * SHOTS.length, dur: 8, fn: sceneNotes, idx: '06', name: 'FIELD NOTES' },
-];
-const OUTRO_AT = SEC[SEC.length - 1].at + SEC[SEC.length - 1].dur;
-const TOTAL = OUTRO_AT + 9;
+// durations are whole beats (80 bpm) so every cut lands on the pulse
 const BEAT = 60 / 80;
+const SHOT = 7 * BEAT, USE_HEAD = 2 * BEAT;
+const SEC = [
+  { dur: 8 * BEAT, fn: sceneTitle },
+  { dur: 11 * BEAT, fn: sceneSystem, idx: '01', name: 'SYSTEM' },
+  { dur: 9 * BEAT, fn: sceneReqs, idx: '02', name: 'REQUIREMENTS' },
+  { dur: 17 * BEAT, fn: sceneMac, idx: '03', name: 'MAC SETUP' },
+  { dur: 18 * BEAT, fn: scenePC, idx: '04', name: 'PC SETUP' },
+  { dur: USE_HEAD + SHOT * SHOTS.length, fn: sceneUse, idx: '05', name: 'OPERATION' },
+  { dur: 9 * BEAT, fn: sceneNotes, idx: '06', name: 'FIELD NOTES' },
+];
+SEC.reduce((at, s) => (s.at = at) + s.dur, 0);
+const OUTRO_AT = SEC[SEC.length - 1].at + SEC[SEC.length - 1].dur;
+const TOTAL = OUTRO_AT + 9 * BEAT;
 
 // ------------------------------------------------------------------ helpers
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
@@ -226,10 +229,10 @@ function sceneMac(lt, sec) {
   header(lt, sec, 255);
   const a = env(lt, 0, sec.dur, .6, .5);
   const steps = [
-    { k: 'REMOTE LOGIN', path: 'System Settings › General › Sharing › Remote Login', at: 1.2 },
-    { k: 'FULL DISK ACCESS', path: 'Privacy & Security › Full Disk Access › sshd-keygen-wrapper', at: 3.6, note: 'reads Messages + Contacts' },
-    { k: 'AUTOMATION', path: 'Privacy & Security › Automation › sshd-keygen-wrapper › Messages, System Events', at: 6.0, note: 'sending · tapbacks · edits' },
-    { k: 'ACCESSIBILITY', path: 'Privacy & Security › Accessibility › sshd-keygen-wrapper', at: 8.4, note: 'tapbacks · edit · undo send' },
+    { k: 'REMOTE LOGIN', path: 'System Settings › General › Sharing › Remote Login', at: 1.0 },
+    { k: 'FULL DISK ACCESS', path: 'Privacy & Security › Full Disk Access › sshd-keygen-wrapper', at: 3.0, note: 'reads Messages + Contacts' },
+    { k: 'AUTOMATION', path: 'Privacy & Security › Automation › sshd-keygen-wrapper › Messages, System Events', at: 5.0, note: 'sending · tapbacks · edits' },
+    { k: 'ACCESSIBILITY', path: 'Privacy & Security › Accessibility › sshd-keygen-wrapper', at: 7.0, note: 'tapbacks · edit · undo send' },
   ];
   steps.forEach((s, i) => {
     const sa = a * outE((lt - s.at) / .5);
@@ -241,7 +244,7 @@ function sceneMac(lt, sec) {
     g.restore();
     toggle(1590, y + 10, ease((lt - s.at - 1.6) / .35), sa);
   });
-  g.save(); g.globalAlpha = a * clamp((lt - 11) / .6);
+  g.save(); g.globalAlpha = a * clamp((lt - 9.2) / .6);
   g.fillStyle = 'rgba(255,106,19,.08)'; g.fillRect(200, 912, 1520, 64);
   text('ADD IT WITH  +  →  ⌘⇧G  →  /usr/libexec/sshd-keygen-wrapper', 230, 954, { f: MONO, size: 22, ls: 2, c: C.accent });
   g.restore();
@@ -268,16 +271,16 @@ function scenePC(lt, sec) {
   let cy = y + 100, tt = lt - 1.2;
   for (const [cmd, out] of PC_CMDS) {
     if (tt <= 0) break;
-    const shown = typed(cmd, tt, 48);
+    const shown = typed(cmd, tt, 62);
     text('PS>', x + 28, cy, { f: MONO, size: 22, c: C.accent });
     text(shown, x + 90, cy, { f: MONO, size: 22, c: C.fg });
     cy += 44;
-    tt -= cmd.length / 48 + .35;
+    tt -= cmd.length / 62 + .3;
     if (out && tt > 0) {
       text(out, x + 90, cy, { f: MONO, size: 20, c: out.startsWith('[ok]') ? C.green : C.dim });
       cy += 44;
     }
-    tt -= .25;
+    tt -= .2;
   }
   // cursor
   if (Math.floor(lt * 2.5) % 2) { g.fillStyle = C.fg; g.fillRect(x + 90, cy - 22, 12, 26); }
@@ -287,7 +290,7 @@ function scenePC(lt, sec) {
 const IMGS = {};
 function shot(lt, sh, idx) {
   const img = IMGS[sh.img];
-  const a = env(lt, 0, 6.5, .45, .45);
+  const a = env(lt, 0, SHOT, .45, .45);
   const iw = 1180, ih = iw * img.height / img.width;
   const x = 640, y = (H - ih) / 2 + 10;
   const z = 1 + lt * .005;
@@ -336,14 +339,13 @@ function wrapText(s, x, y, maxW, a) {
 }
 
 function sceneUse(lt, sec) {
-  if (lt < 2.2) {
-    header(lt, { ...sec, dur: 2.2 }, H / 2);
+  if (lt < USE_HEAD) {
+    header(lt, { ...sec, dur: USE_HEAD }, H / 2);
     return;
   }
-  const u = lt - 2.2;
-  const span = (sec.dur - 2.2) / SHOTS.length;
-  const i = Math.min(SHOTS.length - 1, Math.floor(u / span));
-  shot((u - i * span) * 6.5 / span, SHOTS[i], i);
+  const u = lt - USE_HEAD;
+  const i = Math.min(SHOTS.length - 1, Math.floor(u / SHOT));
+  shot(u - i * SHOT, SHOTS[i], i);
 }
 
 function sceneNotes(lt, sec) {
@@ -405,17 +407,17 @@ function score(ac, out, t0) {
   const fadeOut = TOTAL - 1.5;
 
   // root progression per section (Hz, low register)
-  const roots = [[0, 41.2], [8, 41.2], [19, 36.7], [28, 43.65], [43, 41.2], [61, 36.7], [SEC[6].at, 32.7], [OUTRO_AT, 41.2]];
+  const roots = [41.2, 41.2, 36.7, 43.65, 41.2, 36.7, 32.7].map((f, i) => [SEC[i].at, f]).concat([[OUTRO_AT, 41.2]]);
   // sub drone: two detuned saws through a low lowpass, plus a sine sub
   const droneF = ac.createBiquadFilter(); droneF.type = 'lowpass'; droneF.Q.value = 6;
-  droneF.frequency.setValueAtTime(90, at(0)); droneF.frequency.linearRampToValueAtTime(260, at(8));
+  droneF.frequency.setValueAtTime(90, at(0)); droneF.frequency.linearRampToValueAtTime(260, at(SEC[1].at));
   const lfo = ac.createOscillator(); lfo.frequency.value = .07; const lfoG = ac.createGain(); lfoG.gain.value = 90;
   lfo.connect(lfoG).connect(droneF.frequency); lfo.start(at(0)); lfo.stop(at(TOTAL));
-  const droneG = ac.createGain(); droneG.gain.setValueAtTime(0, at(0)); droneG.gain.linearRampToValueAtTime(.32, at(4));
-  droneG.gain.setValueAtTime(.32, at(fadeOut)); droneG.gain.linearRampToValueAtTime(0, at(TOTAL));
+  const droneG = ac.createGain(); droneG.gain.setValueAtTime(0, at(0)); droneG.gain.linearRampToValueAtTime(.2, at(4));
+  droneG.gain.setValueAtTime(.2, at(fadeOut)); droneG.gain.linearRampToValueAtTime(0, at(TOTAL));
   droneF.connect(droneG).connect(master);
-  const subG = ac.createGain(); subG.gain.setValueAtTime(0, at(0)); subG.gain.linearRampToValueAtTime(.42, at(6));
-  subG.gain.setValueAtTime(.42, at(fadeOut)); subG.gain.linearRampToValueAtTime(0, at(TOTAL));
+  const subG = ac.createGain(); subG.gain.setValueAtTime(0, at(0)); subG.gain.linearRampToValueAtTime(.16, at(6));
+  subG.gain.setValueAtTime(.16, at(fadeOut)); subG.gain.linearRampToValueAtTime(0, at(TOTAL));
   subG.connect(master);
   const voices = [['sawtooth', 1, -7], ['sawtooth', 1, 7], ['sawtooth', 1.5, 3], ['sine', .5, 0]];
   for (const [type, mul, det] of voices) {
@@ -432,8 +434,8 @@ function score(ac, out, t0) {
     k.gain.exponentialRampToValueAtTime(.001, at(s + .55));
     o.connect(k).connect(master); o.start(at(s)); o.stop(at(s + .6));
   }
-  for (let s = 8; s < OUTRO_AT; s += BEAT) kick(s, .55);
-  for (let s = 2; s < 8; s += BEAT * 2) kick(s, .35);
+  for (let s = SEC[1].at; s < OUTRO_AT; s += BEAT) kick(s, .32);
+  for (let s = 2 * BEAT; s < SEC[1].at; s += BEAT * 2) kick(s, .22);
 
   // ticks: filtered noise, 8ths, accent on offbeat, from the requirements section
   function tick(s, lvl, freq) {
@@ -442,7 +444,7 @@ function score(ac, out, t0) {
     const k = ac.createGain(); k.gain.setValueAtTime(lvl, at(s)); k.gain.exponentialRampToValueAtTime(.0005, at(s + .05));
     n.connect(f).connect(k).connect(master); n.start(at(s), Math.random()); n.stop(at(s + .06));
   }
-  for (let s = 19, i = 0; s < OUTRO_AT; s += BEAT / 2, i++) tick(s, i % 2 ? .07 : .03, i % 4 === 3 ? 5200 : 8000);
+  for (let s = SEC[2].at, i = 0; s < OUTRO_AT; s += BEAT / 2, i++) tick(s, i % 2 ? .07 : .03, i % 4 === 3 ? 5200 : 8000);
 
   // metallic ping (FM bell) on section starts
   function ping(s, f = 880) {
@@ -455,9 +457,9 @@ function score(ac, out, t0) {
   }
   // impact: deep boom + noise swell before the cut
   function impact(s) {
-    kick(s, 1.0, 70);
+    kick(s, .6, 70);
     const o = ac.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(52, at(s)); o.frequency.exponentialRampToValueAtTime(30, at(s + 2.5));
-    const k = ac.createGain(); k.gain.setValueAtTime(.7, at(s)); k.gain.exponentialRampToValueAtTime(.001, at(s + 3));
+    const k = ac.createGain(); k.gain.setValueAtTime(.3, at(s)); k.gain.exponentialRampToValueAtTime(.001, at(s + 3));
     o.connect(k).connect(master); o.start(at(s)); o.stop(at(s + 3.1));
     const r0 = Math.max(0, s - 1.6);
     const n = ac.createBufferSource(); n.buffer = noiseBuf; n.loop = true;
@@ -470,8 +472,7 @@ function score(ac, out, t0) {
   for (const s of SEC.slice(1)) { impact(s.at); ping(s.at + .05, 660); }
   impact(OUTRO_AT); ping(OUTRO_AT + .05, 440);
   // shot changes inside OPERATION: light ping
-  const span = (SEC[5].dur - 2.2) / SHOTS.length;
-  for (let i = 0; i < SHOTS.length; i++) ping(SEC[5].at + 2.2 + i * span, 1320);
+  for (let i = 0; i < SHOTS.length; i++) ping(SEC[5].at + USE_HEAD + i * SHOT, 1320);
 }
 
 // ------------------------------------------------------------------ run
@@ -489,10 +490,19 @@ async function start() {
   score(ac, dest, t0);
   let rec, chunks = [];
   if (RECORD) {
-    const stream = new MediaStream([...cv.captureStream(FPS).getVideoTracks(), ...dest.stream.getAudioTracks()]);
+    // ?record=720 makes the small (<10 MB) version: drawn at 1080p, captured from a scaled copy
+    const small = location.search.includes('record=720');
+    let src = cv;
+    if (small) {
+      src = document.createElement('canvas'); src.width = 1280; src.height = 720;
+      const sg = src.getContext('2d'); sg.imageSmoothingQuality = 'high';
+      const draw = frame; frame = t => { draw(t); sg.drawImage(cv, 0, 0, 1280, 720); };
+    }
+    const stream = new MediaStream([...src.captureStream(FPS).getVideoTracks(), ...dest.stream.getAudioTracks()]);
     const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
     const mime = types.find(t => MediaRecorder.isTypeSupported(t));
-    rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 10e6, audioBitsPerSecond: 192e3 });
+    rec = new MediaRecorder(stream, small ? { mimeType: mime, videoBitsPerSecond: 420e3, audioBitsPerSecond: 96e3 }
+                                          : { mimeType: mime, videoBitsPerSecond: 10e6, audioBitsPerSecond: 192e3 });
     rec.ondataavailable = e => e.data.size && chunks.push(e.data);
     rec.onstop = async () => {
       const buf = Buffer.from(await new Blob(chunks).arrayBuffer());

@@ -26,9 +26,9 @@ only) down an SSH session each time it connects.
 
 ## Video tutorial
 
-[![iMassage tutorial: setup and use, 2 minutes](tutorial/thumbnail.jpg)](https://github.com/DeltaPlusProtoTyping/iMassage/releases/download/v1.0/iMassage-tutorial.mp4)
+<video src="https://github.com/DeltaPlusProtoTyping/iMassage/raw/main/tutorial/iMassage-tutorial.mp4" poster="tutorial/thumbnail.jpg" controls width="100%"></video>
 
-**[Watch the 2-minute tutorial](https://github.com/DeltaPlusProtoTyping/iMassage/releases/download/v1.0/iMassage-tutorial.mp4)**
+**[Watch the 90-second tutorial](tutorial/iMassage-tutorial.mp4)**
 (setup on both machines, then every feature). The conversations in it are made-up demo data.
 
 ## Setup
